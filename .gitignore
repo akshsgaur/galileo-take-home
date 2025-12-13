@@ -1,0 +1,324 @@
+# ============================================================================
+# SECURITY - API KEYS & SECRETS (CRITICAL - DO NOT COMMIT)
+# ============================================================================
+
+# Environment files with API keys
+.env
+.env.*
+!.env.example
+.envrc
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.test
+
+# API key files (common naming patterns)
+*api_key*
+*apikey*
+*api-key*
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.*
+secret.*
+credentials.*
+creds.*
+auth.*
+token.*
+*.credentials
+
+# Galileo & OpenAI specific
+galileo_key.txt
+openai_key.txt
+galileo.key
+openai.key
+
+# AWS credentials
+.aws/
+aws-credentials
+*aws_access_key*
+*aws_secret*
+
+# Google Cloud credentials
+*gcloud*key*.json
+*service-account*.json
+*google-credentials*.json
+gcp-key.json
+
+# Azure credentials
+*azure-credentials*
+*.publishsettings
+
+# SSH keys
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.ppk
+
+# PGP/GPG keys
+*.asc
+*.gpg
+secring.*
+
+# Certificate files
+*.cer
+*.crt
+*.der
+
+# Database credentials
+database.yml
+db_credentials.*
+*.sql
+*.sqlite
+*.db
+
+# ============================================================================
+# PYTHON ENVIRONMENT & CACHE
+# ============================================================================
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.python-version
+.pyenv/
+Pipfile.lock
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+!example*.ipynb
+
+# ============================================================================
+# PROJECT OUTPUTS & RESULTS (May contain sensitive data)
+# ============================================================================
+
+# Evaluation results (may contain API responses)
+evaluation_results_*.json
+results/
+output/
+outputs/
+*.results.json
+
+# Logs (may contain API keys or sensitive info)
+*.log
+*.log.*
+logs/
+log/
+*.out
+*.err
+
+# Data files
+data/
+*.csv
+*.tsv
+*.xlsx
+*.xls
+!example_data.csv
+
+# Exports
+exports/
+*.dump
+*.backup
+
+# ============================================================================
+# DEVELOPMENT & IDE
+# ============================================================================
+
+# VSCode
+.vscode/
+*.code-workspace
+.history/
+
+# PyCharm / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.*.sw[a-p]
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ============================================================================
+# BUILD & DISTRIBUTION
+# ============================================================================
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.manifest
+*.spec
+
+# PyInstaller
+*.spec
+
+# ============================================================================
+# TESTING & COVERAGE
+# ============================================================================
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ============================================================================
+# BACKUP & TEMPORARY FILES
+# ============================================================================
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*.tmp
+*.temp
+*~.nib
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# ============================================================================
+# DOCKER & CONTAINERS (May contain secrets)
+# ============================================================================
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+*.dockerfile
+
+# ============================================================================
+# CONFIGURATION FILES THAT MAY CONTAIN SECRETS
+# ============================================================================
+
+# Local config overrides
+config.local.*
+settings.local.*
+local_settings.py
+*.local.json
+*.local.yml
+*.local.yaml
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+!example.tfvars
+
+# Ansible
+*.vault
+vault_pass.txt
+
+# ============================================================================
+# MISC SENSITIVE DATA
+# ============================================================================
+
+# Email files
+*.eml
+
+# Private notes
+NOTES.txt
+TODO.private.md
+private/
+.private/
+
+# Session data
+.session
+*.session
+sessions/
+
+# Browser profiles
+*.mobileconfig
+
+# Archive files (may contain backups with secrets)
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+!example*.zip

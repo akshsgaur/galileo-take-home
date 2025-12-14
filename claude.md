@@ -49,7 +49,7 @@ User Question
     ↓
 ┌───────────────────────────────────────────────┐
 │  STEP 2: SEARCH                               │
-│  - Execute DuckDuckGo web search              │
+│  - Execute Tavily web search                  │
 │  - Retrieve 5 relevant sources                │
 │  - Extract titles, URLs, snippets             │
 │  Eval: Relevance Score (1-10)                 │
@@ -81,7 +81,7 @@ Final Answer + Performance Metrics
 | Workflow | LangGraph | 0.0.20+ | State graph orchestration |
 | LLM | OpenAI GPT-4o-mini | - | Planning, analysis, synthesis |
 | Observability | Galileo SDK | 1.0.0+ | Automatic logging & evaluation |
-| Search | DuckDuckGo HTML | - | Web search (no API key) |
+| Search | Tavily API | `TAVILY_API_KEY` | Web search (API key) |
 | Language | Python | 3.11+ | Implementation |
 | Evaluation | LLM-as-Judge | - | Custom scoring |
 
@@ -167,7 +167,7 @@ if __name__ == "__main__":
 ---
 
 #### `tools.py` (2,945 bytes)
-**Purpose**: Web search functionality using DuckDuckGo
+**Purpose**: Web search functionality using Tavily
 
 **Key Function:**
 ```python
@@ -175,18 +175,17 @@ def search_web(query: str, num_results: int = 5) -> List[Dict[str, str]]
 ```
 
 **Implementation Details:**
-- Uses `requests` to fetch DuckDuckGo HTML search results
-- Parses with `BeautifulSoup4`
+- Uses the official `tavily-python` client
+- Requires `TAVILY_API_KEY` environment variable
 - Returns structured results: `[{"title": str, "url": str, "snippet": str}]`
-- Error handling for network failures
-- User-Agent spoofing to avoid blocking
-- URL encoding for special characters
+- Built-in API handles filtering/deduplication
+- Error handling for quota/network issues
 
-**Why DuckDuckGo HTML:**
-- No API key required
-- Simple HTTP requests
-- Reliable structure for parsing
-- Good enough for demo purposes
+**Why Tavily API:**
+- Stable JSON contract maintained by provider
+- Higher-quality sources vs HTML scraping
+- Handles blocking/anti-bot protections
+- Still simple to integrate (single client)
 
 **Test Mode:**
 ```bash
@@ -324,20 +323,19 @@ python verify_setup.py
 langchain>=0.1.0
 langchain-openai>=0.0.5
 langgraph>=0.0.20
-galileo>=1.0.0
+galileo[langchain]>=1.37.0
 openai>=1.0.0
 python-dotenv>=1.0.0
-requests>=2.31.0
-beautifulsoup4>=4.12.0
-lxml>=4.9.0
+tavily-python>=0.4.0
 ```
 
-**Note**: Using `galileo>=1.0.0` (not `galileo-observe`) based on SDK examples research.
+**Note**: Using `galileo[langchain]>=1.37.0` (not `galileo-observe`) based on SDK examples research.
 
 #### `.env.example`
 ```ini
 GALILEO_API_KEY=your-galileo-api-key-here
 OPENAI_API_KEY=your-openai-api-key-here
+TAVILY_API_KEY=your-tavily-api-key-here
 ```
 
 #### `.gitignore`
@@ -356,20 +354,16 @@ Excludes:
 #### Initialization
 ```python
 from galileo.openai import openai
-from galileo import galileo_context
+from galileo.logger import GalileoLogger
+from galileo.handlers.langchain import GalileoCallback
 
-# Initialize context
-galileo_context.init(
-    project="research-agent",
-    log_stream="multi-step-research"
-)
-
-# Create wrapped client
+logger = GalileoLogger(project="research-agent", log_stream="multi-step-research")
+callback = GalileoCallback(galileo_logger=logger)
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 ```
 
 #### Automatic Logging
-All calls to `client.chat.completions.create()` are automatically logged to Galileo with:
+Attach the callback when invoking the LangGraph runnable so each node is logged automatically. Individual calls to `client.chat.completions.create()` continue to be logged (with token counts, latency, etc.).
 - Input messages
 - Output response
 - Model name
@@ -378,9 +372,7 @@ All calls to `client.chat.completions.create()` are automatically logged to Gali
 - Timestamp
 
 #### Flushing
-```python
-galileo_context.flush()  # Upload traces to Galileo
-```
+Handled automatically by `GalileoCallback` when the LangGraph run completes (the evaluator calls `flush()` separately).
 
 **Key Insight**: The wrapper approach means zero code changes to LLM calls - just import from `galileo.openai` instead of `openai`.
 
@@ -426,10 +418,12 @@ def step_name(self, state: AgentState) -> AgentState:
 
 #### Search Failures
 ```python
+from tavily import TavilyClient
+
 try:
-    response = requests.get(url, headers=headers, timeout=10)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    # ... parse results ...
+    client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+    response = client.search(query=query, max_results=10)
+    results = response.get("results", [])
 except Exception as e:
     print(f"Search error: {e}")
     return []  # Return empty list, not crash
@@ -655,18 +649,18 @@ for step_name, data in analysis["steps"].items():
 
 ## Key Design Decisions
 
-### 1. DuckDuckGo HTML Scraping
-**Decision**: Use HTML scraping instead of official API
+### 1. Tavily Search API
+**Decision**: Use Tavily's managed search API instead of HTML scraping
 **Rationale**:
-- No API key required (easier setup)
-- Sufficient for demo/prototype
-- Reliable HTML structure
-- Good enough quality for testing
+- Higher-quality results with citations
+- Stable JSON response maintained by provider
+- Handles deduplication/anti-bot challenges
+- Easier to scale without brittle parsing logic
 
 **Trade-offs**:
-- Could break if DDG changes HTML
-- Rate limiting possible
-- Less control than official API
+- Requires `TAVILY_API_KEY`
+- Subject to quota/rate limits
+- Slightly higher cost than scraping
 
 ---
 
@@ -917,10 +911,10 @@ See `SECURITY.md` for complete security guidelines including:
 ## Known Limitations
 
 ### 1. Search Quality
-**Issue**: DuckDuckGo HTML scraping can be unreliable
-**Impact**: Sometimes returns ads or low-quality results
-**Mitigation**: Error handling returns empty list
-**Future**: Use official search API (e.g., Brave, SerpAPI)
+**Issue**: Tavily API responses depend on quota/model freshness
+**Impact**: Rate limits or stale data can reduce coverage
+**Mitigation**: Surface errors + allow retry/secondary providers
+**Future**: Add multi-provider abstraction (Brave, SerpAPI) as fallback
 
 ### 2. Rate Limiting
 **Issue**: OpenAI API has rate limits
@@ -1060,7 +1054,7 @@ See `SECURITY.md` for complete security guidelines including:
 - LangGraph StateGraph is ideal for linear workflows
 
 ### Phase 2: Core Components (45 min)
-- Built `tools.py` with DuckDuckGo search
+- Built `tools.py` with Tavily search
 - Tested search functionality (working)
 - Built `evaluators.py` with LLM-as-judge
 - Integrated Galileo wrapper for evaluators
@@ -1069,7 +1063,7 @@ See `SECURITY.md` for complete security guidelines including:
 **Challenges**:
 - Initial confusion about `galileo-observe` vs `galileo` package
 - Resolved by researching actual SDK examples
-- Needed to understand `galileo_context.init()` pattern
+- Needed to understand Galileo callback integrations
 
 ### Phase 3: Agent Implementation (90 min)
 - Built LangGraph state structure

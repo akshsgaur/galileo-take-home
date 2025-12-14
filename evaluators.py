@@ -214,6 +214,29 @@ Return ONLY valid JSON in this exact format:
 
         return self._call_llm(prompt)
 
+    def evaluate_groundedness(self, question: str, answer: str, insights: str) -> Dict[str, any]:
+        """Evaluate how well the final answer stays grounded in the analysis."""
+
+        prompt = f"""Rate how well this final answer is grounded in the provided analysis on a scale of 1-10.
+
+Question: {question}
+
+Answer:
+{answer}
+
+Analysis Context:
+{insights}
+
+Consider:
+- Does every major claim have supporting evidence from the analysis?
+- Are there hallucinated facts or contradictions?
+- Does the answer reflect the nuance and limitations mentioned?
+
+Return ONLY valid JSON in this exact format:
+{{"score": <number from 1-10>, "reasoning": "<brief explanation>"}}"""
+
+        return self._call_llm(prompt)
+
     def flush(self):
         """Upload all logged traces to Galileo."""
         galileo_context.flush()

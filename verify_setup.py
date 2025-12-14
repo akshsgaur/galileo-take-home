@@ -19,8 +19,7 @@ def check_imports():
         ("galileo", "Galileo SDK"),
         ("openai", "OpenAI"),
         ("dotenv", "Python Dotenv"),
-        ("requests", "Requests"),
-        ("bs4", "BeautifulSoup4"),
+        ("tavily", "Tavily Python"),
     ]
 
     missing = []
@@ -54,7 +53,8 @@ def check_env():
 
     required_vars = {
         "GALILEO_API_KEY": "Galileo API Key",
-        "OPENAI_API_KEY": "OpenAI API Key"
+        "OPENAI_API_KEY": "OpenAI API Key",
+        "TAVILY_API_KEY": "Tavily API Key",
     }
 
     missing = []

@@ -1,97 +1,62 @@
-"""
-Web search tools for the research agent.
-Uses DuckDuckGo HTML scraping (no API key required).
-"""
+"""Search utilities powered by Tavily."""
 
-import requests
-from bs4 import BeautifulSoup
-from typing import List, Dict
-import time
-import urllib.parse
+import os
+from typing import Any, Dict, List, Optional
+
+from tavily import TavilyClient
 
 
-def search_web(query: str, num_results: int = 5) -> List[Dict[str, str]]:
-    """
-    Search the web using DuckDuckGo HTML interface.
+_tavily_client: Optional[TavilyClient] = None
 
-    Args:
-        query: Search query string
-        num_results: Maximum number of results to return (default: 5)
 
-    Returns:
-        List of dictionaries with 'title', 'url', and 'snippet' keys
-    """
-    # URL encode the query
-    encoded_query = urllib.parse.quote_plus(query)
-    url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
+def _get_tavily_client() -> TavilyClient:
+    """Lazy-initialize a Tavily client instance."""
+    global _tavily_client
+    if _tavily_client is None:
+        api_key = os.getenv("TAVILY_API_KEY")
+        if not api_key:
+            raise RuntimeError("TAVILY_API_KEY not set. Please add it to your environment/.env file.")
+        _tavily_client = TavilyClient(api_key=api_key)
+    return _tavily_client
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
+
+def search_web(query: str, num_results: int = 5) -> List[Dict[str, Any]]:
+    """Fetch web results for a query using Tavily."""
+    try:
+        client = _get_tavily_client()
+    except RuntimeError as exc:
+        print(f"Search disabled: {exc}")
+        return []
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-
-        soup = BeautifulSoup(response.text, 'html.parser')
-
-        results = []
-        # Find all result divs
-        result_divs = soup.find_all('div', class_='result')
-
-        for result_div in result_divs[:num_results]:
-            try:
-                # Extract title and URL
-                title_elem = result_div.find('a', class_='result__a')
-                if not title_elem:
-                    continue
-
-                title = title_elem.get_text(strip=True)
-                url = title_elem.get('href', '')
-
-                # Extract snippet
-                snippet_elem = result_div.find('a', class_='result__snippet')
-                snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
-
-                # Only add if we have at least title and URL
-                if title and url:
-                    results.append({
-                        'title': title,
-                        'url': url,
-                        'snippet': snippet
-                    })
-            except Exception as e:
-                print(f"Error parsing result: {e}")
-                continue
-
-        return results
-
-    except requests.exceptions.RequestException as e:
-        print(f"Search request error: {e}")
-        return []
-    except Exception as e:
-        print(f"Unexpected search error: {e}")
+        response = client.search(
+            query=query,
+            search_depth="advanced",
+            max_results=num_results,
+            include_images=False,
+            include_answer=False,
+        )
+    except Exception as exc:
+        print(f"Tavily search error: {exc}")
         return []
 
+    results: List[Dict[str, Any]] = []
+    for item in response.get("results", [])[:num_results]:
+        title = item.get("title") or ""
+        url = item.get("url") or ""
+        snippet = item.get("content") or ""
+        if not title or not url:
+            continue
 
-if __name__ == "__main__":
-    # Test the search function
-    print("Testing DuckDuckGo search...")
-    print("-" * 80)
+        metadata: Dict[str, Any] = {
+            "title": title,
+            "url": url,
+            "snippet": snippet,
+        }
 
-    test_query = "AI observability trends 2024"
-    print(f"Query: {test_query}\n")
+        if item.get("score") is not None:
+            metadata["score"] = float(item["score"])
 
-    results = search_web(test_query, num_results=3)
+        results.append(metadata)
 
-    if results:
-        print(f"Found {len(results)} results:\n")
-        for i, result in enumerate(results, 1):
-            print(f"{i}. {result['title']}")
-            print(f"   URL: {result['url']}")
-            print(f"   Snippet: {result['snippet'][:100]}...")
-            print()
-    else:
-        print("No results found or search failed.")
-
-    print("-" * 80)
+    return results

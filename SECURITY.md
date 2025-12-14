@@ -116,10 +116,12 @@ api_key = "sk-proj-abc123..."  # NEVER hardcode
 # .env.example - Safe to commit
 GALILEO_API_KEY=your-galileo-api-key-here
 OPENAI_API_KEY=your-openai-api-key-here
+TAVILY_API_KEY=your-tavily-api-key-here
 
 # .env - NEVER commit
 GALILEO_API_KEY=gal_live_abc123...
 OPENAI_API_KEY=sk-proj-xyz789...
+TAVILY_API_KEY=tavily_live_123abc...
 ```
 
 #### 3. Review Code Before Committing

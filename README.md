@@ -6,7 +6,7 @@ AI research agent with step-by-step evaluation using Galileo observability platf
 
 This project implements a multi-step research agent that:
 - Takes a research question as input
-- Executes 4 sequential steps: Plan → Search → Analyze → Synthesize
+- Executes 6 sequential steps: Plan → Search → Curate → Analyze → Synthesize → Validate
 - Evaluates each step with custom metrics and LLM-as-judge
 - Logs all interactions to Galileo for observability
 - Identifies performance bottlenecks across the workflow
@@ -14,9 +14,9 @@ This project implements a multi-step research agent that:
 ## Architecture
 
 ```
-Question → Plan → Search → Analyze → Synthesize → Answer
-            ↓       ↓        ↓          ↓
-         Eval    Eval     Eval       Eval
+Question → Plan → Search → Curate → Analyze → Synthesize → Validate → Answer
+            ↓       ↓        ↓         ↓         ↓           ↓          ↓
+         Eval    Eval     Eval      Eval      Eval        Eval        Eval
 ```
 
 ### Technology Stack
@@ -24,7 +24,7 @@ Question → Plan → Search → Analyze → Synthesize → Answer
 - **LangGraph**: Workflow orchestration with StateGraph
 - **OpenAI GPT-4o-mini**: LLM for planning, analysis, and synthesis
 - **Galileo SDK**: Observability and evaluation platform
-- **DuckDuckGo**: Web search (no API key required)
+- **Tavily Search API**: Web search (API key required)
 - **Python 3.11+**
 
 ### Evaluation Framework
@@ -33,8 +33,10 @@ Question → Plan → Search → Analyze → Synthesize → Answer
 |------|---------|
 | **Plan** | Quality Score (1-10, LLM-as-judge) |
 | **Search** | Relevance Score (1-10, LLM-as-judge) |
+| **Curate** | Avg Source Confidence (heuristic) + Count |
 | **Analyze** | Completeness Score (1-10, LLM-as-judge) + Context Adherence (Galileo Luna) |
 | **Synthesize** | Answer Quality (1-10, LLM-as-judge) + Context Adherence (Galileo Luna) |
+| **Validate** | Groundedness Score (1-10, LLM-as-judge) |
 
 All steps also track **latency** for performance analysis.
 
@@ -72,11 +74,13 @@ Edit `.env` and add your API keys:
 ```ini
 GALILEO_API_KEY=your-galileo-api-key-here
 OPENAI_API_KEY=your-openai-api-key-here
+TAVILY_API_KEY=your-tavily-api-key-here
 ```
 
 **Getting API Keys:**
 - **Galileo**: Sign up at https://galileo.ai/ and get your API key from the settings
 - **OpenAI**: Get your API key from https://platform.openai.com/api-keys
+- **Tavily**: Create an account at https://app.tavily.com/ and generate an API key
 
 **⚠️ SECURITY WARNING:**
 - **NEVER commit your `.env` file to version control**
@@ -199,26 +203,19 @@ https://app.galileo.ai/
 
 ## Galileo Integration
 
-All LLM calls are automatically logged to Galileo using the OpenAI wrapper:
+LangGraph is instrumented via the official `GalileoCallback`, so every node run is captured automatically:
 
 ```python
-from galileo.openai import openai
-from galileo import galileo_context
+from galileo.logger import GalileoLogger
+from galileo.handlers.langchain import GalileoCallback
 
-# Initialize Galileo
-galileo_context.init(
-    project="research-agent",
-    log_stream="multi-step-research"
-)
+logger = GalileoLogger(project="research-agent", log_stream="multi-step-research")
+callback = GalileoCallback(galileo_logger=logger)
 
-# Use wrapped OpenAI client (auto-logs all calls)
-client = openai.OpenAI()
-
-# ... make LLM calls ...
-
-# Upload traces
-galileo_context.flush()
+final_state = graph.invoke(state, config={"callbacks": [callback]})
 ```
+
+The callback handles trace creation + flushing, while individual LLM calls still use the wrapped OpenAI client. Every workflow run now starts a dedicated Galileo trace with nested workflow spans for **Plan → Search → Curate → Analyze → Synthesize → Validate**. The FastAPI layer returns `trace_id` and `trace_url` fields so the Next.js UI can deep link directly into the Galileo console, making it easy to inspect Luna metrics, heuristics, and latency per step.
 
 ### View Traces
 
@@ -289,16 +286,17 @@ If you hit OpenAI rate limits:
 
 ### Search Failures
 
-DuckDuckGo occasionally blocks automated requests:
-- The tool includes retry logic and error handling
-- Failed searches return empty results with appropriate metrics
+If Tavily returns rate-limit or quota errors:
+- Verify `TAVILY_API_KEY` is set and valid
+- Reduce `num_results` or use "basic" search depth temporarily
+- Failed searches gracefully return empty results with appropriate metrics
 
 ### Galileo Connection
 
 If traces don't appear:
 - Verify `GALILEO_API_KEY` is correct
 - Check project/log stream names match
-- Ensure `galileo_context.flush()` is called
+- Confirm the LangGraph run is invoked with `GalileoCallback`
 
 ## Performance Notes
 

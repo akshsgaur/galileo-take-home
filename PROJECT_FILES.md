@@ -8,7 +8,7 @@
 |------|------|---------|
 | **agent.py** | 14 KB | Main LangGraph agent with 4-step workflow |
 | **evaluators.py** | 8.6 KB | LLM-as-judge evaluation framework |
-| **tools.py** | 2.9 KB | DuckDuckGo web search functionality |
+| **tools.py** | 2.9 KB | Tavily web search functionality |
 | **evaluate.py** | 7.8 KB | Batch evaluation runner for all test questions |
 | **test_questions.py** | 632 B | 10 research questions for testing |
 | **verify_setup.py** | 4.5 KB | Setup verification and dependency checker |
@@ -69,7 +69,7 @@ agent.py
   ├─→ evaluators.py
   │     └─→ galileo SDK
   ├─→ tools.py
-  │     └─→ DuckDuckGo search
+  │     └─→ Tavily search
   └─→ test_questions.py (optional)
       └─→ evaluate.py (batch mode)
 

@@ -51,6 +51,8 @@ class ResearchResponse(BaseModel):
     sources: list
     trace_id: Optional[str] = None
     trace_url: Optional[str] = None
+    session_id: Optional[str] = None
+    session_name: Optional[str] = None
 
 
 @app.get("/")
@@ -102,7 +104,9 @@ async def research(request: ResearchRequest) -> Dict[str, Any]:
             metrics=result["metrics"],
             sources=result.get("sources", []),
             trace_id=result.get("trace_id"),
-            trace_url=result.get("trace_url")
+            trace_url=result.get("trace_url"),
+            session_id=result.get("session_id"),
+            session_name=result.get("session_name")
         )
 
     except Exception as e:

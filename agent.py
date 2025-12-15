@@ -17,8 +17,8 @@ from dotenv import load_dotenv
 # LangGraph imports
 from langgraph.graph import StateGraph, END
 
-# Galileo-wrapped OpenAI
-from galileo.openai import openai
+# Galileo imports
+from galileo import galileo_context
 from galileo.logger import GalileoLogger
 from galileo.handlers.langchain import GalileoCallback
 
@@ -83,17 +83,35 @@ class ResearchAgent:
             print("⚠️  WARNING: GALILEO_API_KEY not found in environment!")
             print("   Galileo logging may not work. Check your .env file.")
 
-        # Create Galileo logger & OpenAI client
-        self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = "gpt-4o-mini"
-        print(f"✓ Using model: {self.model}")
-
+        self.galileo_logger = None
         try:
-            self.galileo_logger = GalileoLogger(project=project, log_stream=log_stream)
-            print("✓ Galileo logger ready")
+            galileo_context.init(project=project, log_stream=log_stream)
+            self.galileo_logger = galileo_context.get_logger_instance()
+            print("✓ Galileo context initialized")
         except Exception as exc:
-            print(f"⚠️  Galileo logger init error: {exc}")
-            self.galileo_logger = GalileoLogger()
+            print(f"⚠️  Galileo context init error: {exc}")
+            print("⚠️  Session tracking may be unavailable")
+
+        # Fallback: direct logger if context init failed
+        if self.galileo_logger is None:
+            try:
+                self.galileo_logger = GalileoLogger(project=project, log_stream=log_stream)
+                print("✓ Galileo logger ready (fallback)")
+            except Exception as exc:
+                print(f"⚠️  Galileo logger init error: {exc}")
+                self.galileo_logger = GalileoLogger()
+
+        # Create LangChain ChatOpenAI (for proper callback tracing)
+        from langchain_openai import ChatOpenAI
+        from langchain_core.messages import SystemMessage, HumanMessage
+
+        self.model = "gpt-4o-mini"
+        self.chat_model = ChatOpenAI(
+            model=self.model,
+            openai_api_key=os.getenv("OPENAI_API_KEY")
+            # Temperature will be set per call for flexibility
+        )
+        print(f"✓ Using model: {self.model} (via LangChain ChatOpenAI)")
 
         # Create evaluator (uses separate log stream for eval calls)
         self.evaluator = StepEvaluator(
@@ -182,6 +200,8 @@ class ResearchAgent:
 
         try:
             # Generate comprehensive research plan using LLM
+            from langchain_core.messages import SystemMessage, HumanMessage
+
             prompt = f"""Create a detailed, strategic research plan to comprehensively answer this question:
 
 Question: {question}
@@ -198,17 +218,14 @@ Be specific and strategic. Format your plan clearly with these sections.
 
 Research Plan:"""
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are an expert research strategist. Create comprehensive, actionable research plans."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=800
-            )
+            messages = [
+                SystemMessage(content="You are an expert research strategist. Create comprehensive, actionable research plans."),
+                HumanMessage(content=prompt)
+            ]
 
-            plan = response.choices[0].message.content.strip()
+            # Use LangChain chat_model for proper Galileo tracing
+            response = self.chat_model.invoke(messages)
+            plan = response.content.strip()
             latency = time.time() - start_time
 
             # Evaluate plan quality
@@ -268,17 +285,16 @@ Be specific and focused. Each query should target a different aspect.
 Search Queries:"""
 
             try:
-                query_response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": "You are a search query expert. Always return valid JSON only."},
-                        {"role": "user", "content": query_extraction_prompt}
-                    ],
-                    temperature=0.3
-                )
-
+                from langchain_core.messages import SystemMessage, HumanMessage
                 import json
-                queries_text = query_response.choices[0].message.content.strip()
+
+                messages = [
+                    SystemMessage(content="You are a search query expert. Always return valid JSON only."),
+                    HumanMessage(content=query_extraction_prompt)
+                ]
+
+                query_response = self.chat_model.invoke(messages)
+                queries_text = query_response.content.strip()
                 # Try to parse JSON, fallback to simple extraction
                 try:
                     queries = json.loads(queries_text)
@@ -462,6 +478,8 @@ Search Queries:"""
 
         try:
             # Analyze using LLM with context - more comprehensive analysis
+            from langchain_core.messages import SystemMessage, HumanMessage
+
             prompt = f"""Conduct a thorough analysis of these search results to answer the question comprehensively.
 
 Question: {question}
@@ -481,17 +499,13 @@ Be thorough, specific, and cite source numbers. Organize your analysis clearly w
 
 Analysis:"""
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are an expert research analyst. Provide comprehensive, well-structured analysis with specific evidence from sources."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=2000  # Allow for more comprehensive response
-            )
+            messages = [
+                SystemMessage(content="You are an expert research analyst. Provide comprehensive, well-structured analysis with specific evidence from sources."),
+                HumanMessage(content=prompt)
+            ]
 
-            insights = response.choices[0].message.content.strip()
+            response = self.chat_model.invoke(messages)
+            insights = response.content.strip()
             latency = time.time() - start_time
 
             # Evaluate completeness
@@ -572,17 +586,15 @@ Aim for a comprehensive yet readable answer (8-12 sentences or equivalent struct
 Answer:"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are an expert research synthesizer. Create comprehensive, well-structured answers with specific evidence and practical value."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=1500  # Allow for comprehensive response
-            )
+            from langchain_core.messages import SystemMessage, HumanMessage
 
-            final_answer = response.choices[0].message.content.strip()
+            messages = [
+                SystemMessage(content="You are an expert research synthesizer. Create comprehensive, well-structured answers with specific evidence and practical value."),
+                HumanMessage(content=prompt)
+            ]
+
+            response = self.chat_model.invoke(messages)
+            final_answer = response.content.strip()
             latency = time.time() - start_time
 
             # Evaluate answer quality
@@ -654,17 +666,50 @@ Answer:"""
 
     def run(self, question: str) -> Dict[str, Any]:
         """
-        Run the complete research workflow.
+        Run the complete research workflow with Galileo observability.
 
         Args:
             question: Research question
 
         Returns:
-            Dictionary with answer and metrics
+            Dictionary with answer, metrics, and trace info
         """
+        from langchain_core.runnables import RunnableConfig
+
         print("=" * 80)
         print(f"🔍 RESEARCH QUESTION: {question}")
         print("=" * 80)
+
+        # Start a Galileo session directly on the logger so trace IDs flow correctly
+        session_name = f"Research: {question[:60]}"
+        session_id = f"research-{int(time.time())}"
+        session_started = False
+        try:
+            self.galileo_logger.start_session(
+                name=session_name,
+                external_id=session_id
+            )
+            session_started = True
+            print(f"✓ Started Galileo session: {session_name}")
+        except Exception as exc:
+            print(f"⚠️  Unable to start Galileo session: {exc}")
+            print("⚠️  Continuing without session container")
+
+        # Start a trace so the callback attaches to a known trace ID
+        trace_started = False
+        trace_name = "Research Pipeline"
+        try:
+            self.galileo_logger.start_trace(
+                input=[{"role": "user", "content": question}],
+                name=trace_name,
+                metadata={"question": question[:100]},
+                tags=["research", "multi-step"]
+            )
+            trace_started = True
+            print(f"✓ Started Galileo trace: {trace_name}")
+        except Exception as exc:
+            print(f"⚠️  Unable to start Galileo trace: {exc}")
+            print("⚠️  Trace hierarchy may be incomplete")
 
         # Initialize state
         initial_state = {
@@ -677,27 +722,113 @@ Answer:"""
             "step_metrics": []
         }
 
-        galileo_callback = GalileoCallback(
-            galileo_logger=self.galileo_logger,
-            start_new_trace=True,
-            flush_on_chain_end=True,
-        )
+        # Create callback for this run; attach to pre-started trace
+        print("🔗 Creating Galileo callback...")
+        try:
+            galileo_callback = GalileoCallback(
+                galileo_logger=self.galileo_logger,
+                start_new_trace=not trace_started,
+                flush_on_chain_end=True,
+            )
+            print("✓ Galileo callback created")
+        except Exception as e:
+            print(f"⚠️  Callback creation error: {e}")
+            print("⚠️  Continuing without Galileo logging...")
+            galileo_callback = None
 
-        final_state = self.app.invoke(
-            initial_state,
-            config={"callbacks": [galileo_callback]},
-        )
+        # Create config
+        if galileo_callback:
+            config = RunnableConfig(
+                callbacks=[galileo_callback],
+                run_name="Research Pipeline",
+                tags=["research", "multi-step", "langgraph"],
+                metadata={
+                    "question": question,
+                    "num_steps": 6,
+                    "model": self.model,
+                }
+            )
+        else:
+            config = RunnableConfig(
+                run_name="Research Pipeline",
+                tags=["research", "multi-step", "langgraph"],
+            )
 
+        # Run the graph
+        try:
+            final_state = self.app.invoke(initial_state, config=config)
+            print("\n✓ Research pipeline completed")
+        except Exception as e:
+            print(f"\n✗ Pipeline error: {e}")
+            if trace_started:
+                try:
+                    self.galileo_logger.conclude(conclude_all=True)
+                    print("✓ Galileo trace concluded (error path)")
+                except Exception as exc:
+                    print(f"⚠️  Error concluding Galileo trace after failure: {exc}")
+            if session_started:
+                try:
+                    self.galileo_logger.clear_session()
+                    print("✓ Galileo session cleared (error path)")
+                except Exception as exc:
+                    print(f"⚠️  Error clearing Galileo session after failure: {exc}")
+            raise
+
+        # Extract trace information
         final_answer = final_state["final_answer"]
-        callback_handler = getattr(galileo_callback, "_handler", None)
+
         trace_id = None
-        if callback_handler is not None:
-            trace_id = getattr(callback_handler._galileo_logger, "trace_id", None)
+        trace_url = None
 
-        trace_url = self._build_trace_url(trace_id)
+        if galileo_callback:
+            try:
+                trace_id = None
+                if trace_started and getattr(self.galileo_logger, "traces", None):
+                    try:
+                        trace_id = str(self.galileo_logger.traces[-1].id)
+                    except Exception:
+                        trace_id = None
 
-        # Flush evaluator traces (uses separate Galileo context)
-        self.evaluator.flush()
+                if not trace_id:
+                    # Fallback to handler's logger if available
+                    handler_logger = getattr(galileo_callback, "_handler", None)
+                    if handler_logger and getattr(handler_logger, "_galileo_logger", None):
+                        traces = getattr(handler_logger._galileo_logger, "traces", None)
+                        if traces:
+                            try:
+                                trace_id = str(traces[-1].id)
+                            except Exception:
+                                trace_id = None
+
+                trace_url = self._build_trace_url(trace_id)
+
+                if trace_id:
+                    print(f"\n✓ Trace ID: {trace_id}")
+                    print(f"✓ View trace: {trace_url}")
+                else:
+                    print("\n⚠️  Warning: No trace ID generated")
+            except Exception as e:
+                print(f"\n⚠️  Error getting trace info: {e}")
+
+        if trace_started:
+            try:
+                self.galileo_logger.conclude(conclude_all=True)
+                print("✓ Galileo trace concluded")
+            except Exception as exc:
+                print(f"⚠️  Error concluding Galileo trace: {exc}")
+        if session_started:
+            try:
+                self.galileo_logger.clear_session()
+                print("✓ Galileo session cleared")
+            except Exception as exc:
+                print(f"⚠️  Error clearing Galileo session: {exc}")
+
+        # Flush evaluator traces (separate context)
+        try:
+            self.evaluator.flush()
+            print("✓ Evaluator traces flushed")
+        except Exception as e:
+            print(f"⚠️  Evaluator flush error: {e}")
 
         return {
             "question": question,
@@ -708,6 +839,8 @@ Answer:"""
             "sources": final_state.get("curated_sources") or final_state.get("search_results", []),
             "trace_id": trace_id,
             "trace_url": trace_url,
+            "session_id": session_id if session_started else None,
+            "session_name": session_name if session_started else None
         }
 
 

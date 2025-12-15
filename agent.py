@@ -87,7 +87,7 @@ class ResearchAgent:
         try:
             galileo_context.init(project=project, log_stream=log_stream)
             self.galileo_logger = galileo_context.get_logger_instance()
-            print("✓ Galileo context initialized")
+            print("✓ Galileo context initialized (7 Luna scorers will be enabled)")
         except Exception as exc:
             print(f"⚠️  Galileo context init error: {exc}")
             print("⚠️  Session tracking may be unavailable")
@@ -153,9 +153,16 @@ class ResearchAgent:
     def _enable_galileo_metrics(self) -> None:
         """Enable default Galileo scorers (Luna-2) on the active log stream."""
         metrics_to_enable = [
-            "context_adherence",
-            "hallucination",
-            "prompt_injection",
+            # Core quality metrics
+            "context_adherence",      # How well response adheres to context
+            "hallucination",          # Detects made-up information
+            "completeness",           # Assesses response completeness
+            "chunk_attribution",      # Tracks which chunks/sources were used
+
+            # Safety & compliance metrics
+            "prompt_injection",       # Detects prompt injection attempts
+            "pii",                    # Detects personally identifiable information
+            "toxicity",               # Detects toxic or harmful language
         ]
         try:
             from galileo.log_streams import LogStreams
@@ -169,10 +176,45 @@ class ResearchAgent:
                 return
             stream.enable_metrics(metrics=metrics_to_enable)
             print(
-                f"✓ Galileo metrics enabled on '{self.log_stream}': {', '.join(metrics_to_enable)}"
+                f"✓ Galileo Luna scorers enabled ({len(metrics_to_enable)} metrics): {', '.join(metrics_to_enable)}"
             )
         except Exception as exc:
             print(f"⚠️  Unable to enable Galileo metrics automatically: {exc}")
+
+    def _classify_question_type(self, question: str) -> str:
+        """Classify the research question so traces show intent."""
+        question_lower = question.lower()
+
+        if any(word in question_lower for word in ["trend", "latest", "new", "emerging", "recent"]):
+            return "trends"
+        if any(word in question_lower for word in ["how", "what are the steps", "guide", "tutorial"]):
+            return "how-to"
+        if any(word in question_lower for word in ["vs", "versus", "compare", "difference", "better"]):
+            return "comparison"
+        if any(word in question_lower for word in ["why", "reason", "cause", "explain"]):
+            return "explanation"
+        if any(word in question_lower for word in ["what", "which", "who", "when", "where"]):
+            return "factual"
+        return "general"
+
+    def _identify_bottleneck(self, metrics: List[Dict[str, Any]]) -> str:
+        """Return name of lowest-scoring step."""
+        min_score = 11  # higher than max possible
+        bottleneck = None
+
+        for metric in metrics:
+            score = (
+                metric.get("quality_score")
+                or metric.get("relevance_score")
+                or metric.get("completeness_score")
+                or metric.get("grounded_score")
+            )
+
+            if score is not None and score < min_score:
+                min_score = score
+                bottleneck = metric.get("step")
+
+        return bottleneck or "none"
 
     def _build_trace_url(self, trace_id: Optional[str]) -> Optional[str]:
         if not trace_id:
@@ -287,6 +329,7 @@ Search Queries:"""
             try:
                 from langchain_core.messages import SystemMessage, HumanMessage
                 import json
+                import re
 
                 messages = [
                     SystemMessage(content="You are a search query expert. Always return valid JSON only."),
@@ -295,15 +338,16 @@ Search Queries:"""
 
                 query_response = self.chat_model.invoke(messages)
                 queries_text = query_response.content.strip()
-                # Try to parse JSON, fallback to simple extraction
+
                 try:
                     queries = json.loads(queries_text)
-                    if not isinstance(queries, list):
+                    if not isinstance(queries, list) or not queries:
+                        raise ValueError("Not a valid list")
+                except Exception:
+                    queries = re.findall(r'"([^"]+)"', plan) or re.findall(r'"([^"]+)"', queries_text)
+                    if not queries:
                         queries = [question]
-                except:
-                    # Fallback: use the question
-                    queries = [question]
-            except:
+            except Exception:
                 queries = [question]
 
             # Search for each query and combine results
@@ -358,7 +402,9 @@ Search Queries:"""
                 "step": "curate",
                 "latency": latency,
                 "num_sources": 0,
+                "num_filtered": 0,
                 "avg_confidence": 0,
+                "source_types": {}
             }
             return {**state, "curated_sources": [], "step_metrics": [metrics]}
 
@@ -370,6 +416,7 @@ Search Queries:"""
             deduped[url] = result
 
         curated_sources: List[Dict[str, Any]] = []
+        source_type_counts: Dict[str, int] = {}
 
         for result in deduped.values():
             url = result.get("url", "")
@@ -389,6 +436,8 @@ Search Queries:"""
                 classification = "press"
             elif any(token in domain for token in ["blog", "medium", "substack"]):
                 classification = "blog"
+
+            source_type_counts[classification] = source_type_counts.get(classification, 0) + 1
 
             reason = f"Base score {base_score:.2f}; domain {domain}"
             if domain in TRUSTED_DOMAINS:
@@ -416,7 +465,9 @@ Search Queries:"""
             "step": "curate",
             "latency": latency,
             "num_sources": len(curated_sources),
-            "avg_confidence": avg_conf,
+            "num_filtered": max(len(deduped) - len(curated_sources), 0),
+            "avg_confidence": round(avg_conf, 2),
+            "source_types": source_type_counts,
         }
 
         print(
@@ -633,30 +684,28 @@ Answer:"""
                 "latency": time.time() - start_time,
                 "grounded_score": None,
                 "reasoning": "No answer to validate",
+                "passed": False,
             }
             return {**state, "step_metrics": [metrics]}
 
         eval_result = self.evaluator.evaluate_groundedness(question, final_answer, insights)
         latency = time.time() - start_time
 
-        adjusted_answer = final_answer
         if eval_result["score"] <= 6:
-            warning = eval_result["reasoning"]
-            adjusted_answer = (
-                f"{final_answer}\n\n> **Validation note:** {warning}"
-            )
-            print("⚠️  Validation flagged potential grounding issues")
+            print(f"⚠️  Validation warning: {eval_result['reasoning']}")
+        else:
+            print(f"✓ Answer validated (grounded: {eval_result['score']}/10, {latency:.2f}s)")
 
         metrics = {
             "step": "validate",
             "latency": latency,
             "grounded_score": eval_result["score"],
             "reasoning": eval_result["reasoning"],
+            "passed": eval_result["score"] > 6,
         }
 
         return {
             **state,
-            "final_answer": adjusted_answer,
             "step_metrics": [metrics],
         }
 
@@ -680,36 +729,10 @@ Answer:"""
         print(f"🔍 RESEARCH QUESTION: {question}")
         print("=" * 80)
 
-        # Start a Galileo session directly on the logger so trace IDs flow correctly
         session_name = f"Research: {question[:60]}"
         session_id = f"research-{int(time.time())}"
-        session_started = False
-        try:
-            self.galileo_logger.start_session(
-                name=session_name,
-                external_id=session_id
-            )
-            session_started = True
-            print(f"✓ Started Galileo session: {session_name}")
-        except Exception as exc:
-            print(f"⚠️  Unable to start Galileo session: {exc}")
-            print("⚠️  Continuing without session container")
-
-        # Start a trace so the callback attaches to a known trace ID
-        trace_started = False
-        trace_name = "Research Pipeline"
-        try:
-            self.galileo_logger.start_trace(
-                input=[{"role": "user", "content": question}],
-                name=trace_name,
-                metadata={"question": question[:100]},
-                tags=["research", "multi-step"]
-            )
-            trace_started = True
-            print(f"✓ Started Galileo trace: {trace_name}")
-        except Exception as exc:
-            print(f"⚠️  Unable to start Galileo trace: {exc}")
-            print("⚠️  Trace hierarchy may be incomplete")
+        galileo_context.start_session(name=session_name, external_id=session_id)
+        print(f"✓ Started Galileo session: {session_name}")
 
         # Initialize state
         initial_state = {
@@ -722,106 +745,107 @@ Answer:"""
             "step_metrics": []
         }
 
-        # Create callback for this run; attach to pre-started trace
-        print("🔗 Creating Galileo callback...")
-        try:
-            galileo_callback = GalileoCallback(
-                galileo_logger=self.galileo_logger,
-                start_new_trace=not trace_started,
-                flush_on_chain_end=True,
-            )
-            print("✓ Galileo callback created")
-        except Exception as e:
-            print(f"⚠️  Callback creation error: {e}")
-            print("⚠️  Continuing without Galileo logging...")
-            galileo_callback = None
+        galileo_callback = GalileoCallback(
+            galileo_logger=self.galileo_logger,
+            start_new_trace=True,
+            flush_on_chain_end=True,
+        )
+        print("✓ Galileo callback created")
+
+        metadata = {
+            # Question metadata
+            "question": question,
+            "question_length": len(question),
+            "question_words": len(question.split()),
+            "question_type": self._classify_question_type(question),
+
+            # Agent configuration
+            "num_steps": 6,
+            "model": self.model,
+            "workflow_version": "v1.0",
+
+            # Feature flags
+            "enable_curation": True,
+            "enable_validation": True,
+            "search_depth": "advanced",
+            "max_sources": 8,
+
+            # Execution metadata
+            "project": self.project,
+            "log_stream": self.log_stream,
+            "started_at": int(time.time()),
+        }
 
         # Create config
-        if galileo_callback:
-            config = RunnableConfig(
-                callbacks=[galileo_callback],
-                run_name="Research Pipeline",
-                tags=["research", "multi-step", "langgraph"],
-                metadata={
-                    "question": question,
-                    "num_steps": 6,
-                    "model": self.model,
-                }
-            )
-        else:
-            config = RunnableConfig(
-                run_name="Research Pipeline",
-                tags=["research", "multi-step", "langgraph"],
-            )
+        config = RunnableConfig(
+            callbacks=[galileo_callback],
+            run_name="Research Pipeline",
+            tags=["research", "multi-step", "langgraph"],
+            metadata=metadata
+        )
 
         # Run the graph
         try:
             final_state = self.app.invoke(initial_state, config=config)
             print("\n✓ Research pipeline completed")
+
+            step_metrics = final_state.get("step_metrics", [])
+            total_latency = sum(m.get("latency", 0) for m in step_metrics)
+            scores = []
+            for metric in step_metrics:
+                score = (
+                    metric.get("quality_score")
+                    or metric.get("relevance_score")
+                    or metric.get("completeness_score")
+                    or metric.get("grounded_score")
+                )
+                if score is not None:
+                    scores.append(score)
+
+            avg_score = sum(scores) / len(scores) if scores else 0
+            curated_sources = final_state.get("curated_sources") or []
+            search_results = final_state.get("search_results") or []
+            curate_metric = next((m for m in step_metrics if m.get("step") == "curate"), {})
+            validation_metric = next((m for m in step_metrics if m.get("step") == "validate"), {})
+
+            completion_metadata = {
+                "completed_at": int(time.time()),
+                "total_latency": round(total_latency, 2),
+                "avg_score": round(avg_score, 2),
+                "total_sources_found": len(search_results),
+                "sources_curated": len(curated_sources),
+                "avg_confidence": round(curate_metric.get("avg_confidence", 0), 3),
+                "bottleneck_step": self._identify_bottleneck(step_metrics),
+                "validation_passed": validation_metric.get("passed", True),
+                "source_types": curate_metric.get("source_types", {}),
+            }
+
+            if hasattr(galileo_callback, "add_metadata"):
+                try:
+                    galileo_callback.add_metadata(completion_metadata)
+                except Exception as meta_exc:
+                    print(f"⚠️  Could not add completion metadata to callback: {meta_exc}")
+
+            print(
+                f"✓ Completion metrics: {total_latency:.1f}s total, {avg_score:.1f}/10 avg, bottleneck: {completion_metadata['bottleneck_step']}"
+            )
         except Exception as e:
             print(f"\n✗ Pipeline error: {e}")
-            if trace_started:
-                try:
-                    self.galileo_logger.conclude(conclude_all=True)
-                    print("✓ Galileo trace concluded (error path)")
-                except Exception as exc:
-                    print(f"⚠️  Error concluding Galileo trace after failure: {exc}")
-            if session_started:
-                try:
-                    self.galileo_logger.clear_session()
-                    print("✓ Galileo session cleared (error path)")
-                except Exception as exc:
-                    print(f"⚠️  Error clearing Galileo session after failure: {exc}")
+            galileo_context.end_session()
             raise
 
         # Extract trace information
         final_answer = final_state["final_answer"]
 
-        trace_id = None
-        trace_url = None
+        trace_id = getattr(self.galileo_logger, "trace_id", None)
+        trace_url = self._build_trace_url(trace_id) if trace_id else None
 
-        if galileo_callback:
-            try:
-                trace_id = None
-                if trace_started and getattr(self.galileo_logger, "traces", None):
-                    try:
-                        trace_id = str(self.galileo_logger.traces[-1].id)
-                    except Exception:
-                        trace_id = None
+        if trace_id:
+            print(f"\n✓ Trace ID: {trace_id}")
+            print(f"✓ View trace: {trace_url}")
 
-                if not trace_id:
-                    # Fallback to handler's logger if available
-                    handler_logger = getattr(galileo_callback, "_handler", None)
-                    if handler_logger and getattr(handler_logger, "_galileo_logger", None):
-                        traces = getattr(handler_logger._galileo_logger, "traces", None)
-                        if traces:
-                            try:
-                                trace_id = str(traces[-1].id)
-                            except Exception:
-                                trace_id = None
-
-                trace_url = self._build_trace_url(trace_id)
-
-                if trace_id:
-                    print(f"\n✓ Trace ID: {trace_id}")
-                    print(f"✓ View trace: {trace_url}")
-                else:
-                    print("\n⚠️  Warning: No trace ID generated")
-            except Exception as e:
-                print(f"\n⚠️  Error getting trace info: {e}")
-
-        if trace_started:
-            try:
-                self.galileo_logger.conclude(conclude_all=True)
-                print("✓ Galileo trace concluded")
-            except Exception as exc:
-                print(f"⚠️  Error concluding Galileo trace: {exc}")
-        if session_started:
-            try:
-                self.galileo_logger.clear_session()
-                print("✓ Galileo session cleared")
-            except Exception as exc:
-                print(f"⚠️  Error clearing Galileo session: {exc}")
+        galileo_context.end_session()
+        print("✓ Galileo session ended")
 
         # Flush evaluator traces (separate context)
         try:

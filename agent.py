@@ -831,7 +831,7 @@ Answer:"""
             )
         except Exception as e:
             print(f"\n✗ Pipeline error: {e}")
-            galileo_context.end_session()
+            galileo_context.clear_session()
             raise
 
         # Extract trace information
@@ -844,7 +844,7 @@ Answer:"""
             print(f"\n✓ Trace ID: {trace_id}")
             print(f"✓ View trace: {trace_url}")
 
-        galileo_context.end_session()
+        galileo_context.clear_session()
         print("✓ Galileo session ended")
 
         # Flush evaluator traces (separate context)
@@ -863,8 +863,8 @@ Answer:"""
             "sources": final_state.get("curated_sources") or final_state.get("search_results", []),
             "trace_id": trace_id,
             "trace_url": trace_url,
-            "session_id": session_id if session_started else None,
-            "session_name": session_name if session_started else None
+            "session_id": session_id,
+            "session_name": session_name
         }
 
 

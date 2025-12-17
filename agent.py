@@ -403,7 +403,8 @@ Research Plan:"""
             }
 
         try:
-            query_text = f"{question}\n\nResearch Plan:\n{plan}"
+            # Use just the question for retrieval - plans are too long and dilute semantic search
+            query_text = question
 
             if rag_config.get("use_documents", False):
                 doc_tool_input = {

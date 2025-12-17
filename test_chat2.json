@@ -1,0 +1,7 @@
+{
+  "question": "What are attention mechanisms?",
+  "use_documents": false,
+  "use_chat_history": true,
+  "chat_retrieval_k": 3,
+  "user_id": "test-user-123"
+}

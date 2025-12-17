@@ -1,0 +1,6 @@
+{
+  "question": "What is BERT and how does it work?",
+  "use_documents": true,
+  "doc_retrieval_k": 5,
+  "user_id": "test-user-123"
+}

@@ -4,6 +4,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from tavily import TavilyClient
+from langchain_core.tools import tool
 
 
 _tavily_client: Optional[TavilyClient] = None
@@ -60,3 +61,9 @@ def search_web(query: str, num_results: int = 5) -> List[Dict[str, Any]]:
         results.append(metadata)
 
     return results
+
+
+@tool("tavily_web_search")
+def tavily_search_tool(query: str, num_results: int = 5) -> List[Dict[str, Any]]:
+    """Search the public web for current information using Tavily."""
+    return search_web(query=query, num_results=num_results)

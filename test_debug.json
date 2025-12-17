@@ -1,0 +1,6 @@
+{
+  "question": "What is machine learning?",
+  "use_documents": false,
+  "use_chat_history": true,
+  "user_id": "test-user-123"
+}

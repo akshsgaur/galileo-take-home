@@ -1,0 +1,7 @@
+{
+  "question": "How do attention mechanisms relate to what we discussed before?",
+  "use_documents": false,
+  "use_chat_history": true,
+  "chat_retrieval_k": 3,
+  "user_id": "test-user-123"
+}

@@ -4,6 +4,15 @@
 **Purpose**: Technical take-home project for Product Marketing Manager role at Galileo
 **Due Date**: Tuesday 12/17 EOD
 **Built**: December 13, 2024
+**Updated**: December 16, 2024 - Phase 4 Complete: Galileo RAG Evaluation
+
+---
+
+> **📄 RAG Documentation**
+> See [AGENT.md](./AGENT.md) for comprehensive documentation on:
+> - **Dual RAG System**: Document & Chat History RAG with Pinecone
+> - **Phase 4 (NEW)**: Galileo RAG Evaluation with 3 comprehensive evaluators
+> - Database schema, implementation status, and verification examples
 
 ---
 
@@ -1104,6 +1113,53 @@ See `SECURITY.md` for complete security guidelines including:
 - Troubleshooting guide
 - Resources section with links
 
+### RAG Enhancement (December 16, 2024)
+
+#### Phase 1: Core Infrastructure (Complete)
+- Database schema with 6 tables (users, documents, chunks, sessions, messages, evaluations)
+- Pinecone integration with namespace isolation
+- OpenAI embeddings service
+- Document processor with chunking
+
+#### Phase 2: Document RAG (Complete)
+- Document upload endpoint with PDF/DOCX/TXT support
+- Modified AgentState for RAG fields
+- Added rag_retrieve_step() for Pinecone queries
+- Hybrid ranking in curate_step() (web + docs + chat)
+- Confidence boosting: docs +0.15
+
+#### Phase 3: Chat History RAG (Complete)
+- Chat history endpoints and storage
+- Conversations stored in DB + Pinecone
+- Chat retrieval in rag_retrieve_step()
+- Confidence boosting increased: chat +0.30
+- Total sources increased to 10 (from 8)
+
+**Key Fix**: Chat sources were retrieved but filtered out due to low confidence. Increased boost from +0.10 to +0.30 to compete with web sources (0.99 confidence).
+
+#### Phase 4: Galileo RAG Evaluation (Complete)
+- Created `rag_evaluators.py` (456 lines) with 3 evaluators:
+  1. **evaluate_retrieval_quality()** - Context Relevance, Precision, Coverage (1-10)
+  2. **evaluate_hybrid_ranking()** - Quality, Diversity, Calibration (1-10)
+  3. **evaluate_context_utilization()** - Adherence, Completeness (0-1 Galileo metrics)
+- Integrated into agent workflow (3 steps)
+- Expanded RAGEvaluation schema (20+ metrics)
+- Database storage via `save_rag_evaluations()`
+- Tested: All 3 evaluation types successfully saved
+
+**Galileo Integration**:
+- Separate log streams: `rag-document-retrieval`, `rag-hybrid-ranking`, `rag-context-utilization`
+- Context Adherence scores: 1.0 (perfect - no hallucinations detected!)
+- Completeness scores: 0.80-1.0 (80-100% context utilization)
+
+**Verification**:
+```sql
+SELECT eval_type, COUNT(*) FROM rag_evaluations GROUP BY eval_type;
+-- retrieval_quality|8
+-- hybrid_ranking|4
+-- context_utilization|2
+```
+
 ---
 
 ## Quick Reference
@@ -1209,6 +1265,14 @@ requirements.txt      161 bytes
 
 ---
 
-**Last Updated**: December 13, 2024
-**Status**: Complete and ready for submission
-**Next Steps**: Test with actual API keys, run full evaluation, submit by 12/17 EOD
+**Last Updated**: December 16, 2024
+**Status**: Phase 4 Complete - Dual RAG + Galileo Evaluation Fully Operational
+**Completed**:
+- ✅ Original multi-step research agent with Galileo observability
+- ✅ Document RAG with Pinecone vector database
+- ✅ Chat History RAG with conversation retrieval
+- ✅ Comprehensive RAG evaluation (3 evaluators, 20+ metrics)
+- ✅ Database persistence for all evaluations
+- ✅ End-to-end testing with verified results
+
+**Next Steps**: Phase 5 (Authentication with JWT and user isolation)
